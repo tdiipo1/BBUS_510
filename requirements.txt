@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+matplotlib
+scipy
+statsmodels
+openpyxl
+xlsxwriter
+wordcloud
+vaderSentiment
