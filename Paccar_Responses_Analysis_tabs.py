@@ -100,32 +100,56 @@ def create_template_excel():
 
 
 @st.cache_data
-def load_and_clean_data(uploaded_file):
-    """Loads, renames, and preprocesses the survey data from CSV or Excel."""
+def load_and_clean_data(file_input):
+    """
+    Loads, renames, and preprocesses the survey data.
+    'file_input' can be an uploaded file object OR a string filepath.
+    """
     df = None
+    
+    # --- NEW: Handle both string paths and file objects ---
+    file_name = ""
+    if isinstance(file_input, str):
+        file_name = file_input
+    else:
+        # It's an uploaded file object
+        file_name = file_input.name
+    # --- END NEW ---
+
     try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(uploaded_file)
+        if file_name.endswith('.csv'):
+            df = pd.read_csv(file_input)
+        elif file_name.endswith(('.xls', '.xlsx')):
+            df = pd.read_excel(file_input)
         else:
             st.error("Unsupported file type. Please upload a CSV or XLSX file.")
             return None
+    except FileNotFoundError:
+        # This will catch the error if the local file isn't found
+        st.error(f"Error: Local file not found. Make sure **{file_name}** is in the same directory as the app.")
+        return None
     except Exception as e:
         st.error(f"Error reading file: {e}. Ensure the file is not corrupted.")
         return None
 
     if df is not None:
+        # 1. Rename columns based on the mapping
         inverted_map = {v: k for k, v in COLUMN_MAPPING.items()}
         df = df.rename(columns=inverted_map)
+
+        # 2. Get only the columns we've defined
         defined_cols = list(COLUMN_MAPPING.keys())
         missing_cols = [col for col in defined_cols if col not in df.columns]
         if any(col.startswith('Q') for col in missing_cols):
              st.warning(f"Warning: Your file seems to be missing some expected data columns. The app may not work correctly. Missing: {', '.join(missing_cols)}")
+        
         df = df[[col for col in defined_cols if col in df.columns]]
+
+        # 3. Clean multi-select "explode" columns
         for col in ['Q3_Systems', 'Q6_1_Blockers', 'Q14_HelpMost']:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip().str.rstrip(';')
+        
         return df
     return None
 
@@ -466,16 +490,13 @@ def build_dashboard(df):
             st.warning("Column 'Q15_OpenText' not found. Check `COLUMN_MAPPING`.")
     # --- END REBUILT TAB 5 ---
 
-
 # --- Main Application Logic (UPDATED) ---
 def main():
     st.set_page_config(layout="wide")
     
-    # --- MODIFIED HEADER ---
     st.subheader("University of Washington Bothell | B BUS 510 (MANAGING ORGANIZATIONAL EFFECTIVENESS)")
     st.title("📊 Group B4: Automated Survey Hypothesis Tester")
     st.markdown("---") 
-    # --- END MODIFIED HEADER ---
     
     st.markdown("Upload your survey file, or download the template to see the required format.")
 
@@ -493,22 +514,53 @@ def main():
 
     st.divider() 
 
-    uploaded_file = st.file_uploader(
-        "Upload your master survey file (CSV or XLSX)", 
-        type=['csv', 'xlsx']
-    )
+    # --- NEW: Use Session State to hold data ---
+    if 'data' not in st.session_state:
+        st.session_state.data = None
+    # --- END NEW ---
 
-    if uploaded_file is not None:
-        try:
-            data = load_and_clean_data(uploaded_file)
-            if data is not None:
-                st.success(f"Successfully loaded and processed **{uploaded_file.name}**.")
-                build_dashboard(data)
-        except Exception as e:
-            st.error(f"An error occurred while processing the file: {e}")
-            st.error("Please check your `COLUMN_MAPPING` dictionary (in the code) to ensure all names are correct.")
+    # --- NEW: Two-column layout for loading options ---
+    col1, col2 = st.columns(2)
+
+    with col1:
+        uploaded_file = st.file_uploader(
+            "Option 1: Upload a file (CSV or XLSX)", 
+            type=['csv', 'xlsx']
+        )
+        if uploaded_file is not None:
+            # If user uploads a new file, process and save it to session state
+            try:
+                st.session_state.data = load_and_clean_data(uploaded_file)
+                if st.session_state.data is not None:
+                    st.success(f"Successfully loaded and processed **{uploaded_file.name}**.")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
+                st.session_state.data = None
+
+    with col2:
+        st.markdown("Option 2: Load the local project file")
+        local_file_name = "College Case study Survey.xlsx"
+        
+        if st.button(f"Load Local File: `{local_file_name}`"):
+            # If user clicks button, process and save local file to session state
+            try:
+                st.session_state.data = load_and_clean_data(local_file_name)
+                if st.session_state.data is not None:
+                    st.success(f"Successfully loaded and processed **{local_file_name}**.")
+            except Exception as e:
+                # Error is handled in load_and_clean_data, but clear state just in case
+                st.session_state.data = None
+    
+    st.divider()
+    # --- END NEW LAYOUT ---
+
+    # --- MODIFIED: Main app logic ---
+    # Run the dashboard if data exists in the session state
+    if st.session_state.data is not None:
+        build_dashboard(st.session_state.data)
     else:
-        st.info("Awaiting your survey file...")
+        st.info("Awaiting your survey file... (Use either the uploader or the local file button)")
+    # --- END MODIFIED ---
 
 if __name__ == "__main__":
     main()
