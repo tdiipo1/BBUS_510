@@ -4,6 +4,7 @@ import pandas as pd
 import altair as alt
 import numpy as np
 from io import BytesIO
+import os
 
 # --- NEW LIBRARIES (Install vaderSentiment) ---
 from wordcloud import WordCloud, STOPWORDS
@@ -514,53 +515,60 @@ def main():
 
     st.divider() 
 
-    # --- NEW: Use Session State to hold data ---
+    # --- NEW: Initialize Session State & Auto-Load ---
     if 'data' not in st.session_state:
         st.session_state.data = None
+        
+        # Check for local file immediately on startup
+        local_file_name = "College Case study Survey.xlsx"
+        if os.path.exists(local_file_name):
+            try:
+                auto_loaded_data = load_and_clean_data(local_file_name)
+                if auto_loaded_data is not None:
+                    st.session_state.data = auto_loaded_data
+                    st.toast(f"✅ Automatically loaded: {local_file_name}") # Nice popup notification
+            except Exception as e:
+                st.warning(f"Could not auto-load local file: {e}")
     # --- END NEW ---
 
-    # --- NEW: Two-column layout for loading options ---
+    # --- Two-column layout for manual overrides ---
     col1, col2 = st.columns(2)
 
     with col1:
         uploaded_file = st.file_uploader(
-            "Option 1: Upload a file (CSV or XLSX)", 
+            "Option 1: Upload a different file (CSV or XLSX)", 
             type=['csv', 'xlsx']
         )
         if uploaded_file is not None:
-            # If user uploads a new file, process and save it to session state
             try:
                 st.session_state.data = load_and_clean_data(uploaded_file)
                 if st.session_state.data is not None:
-                    st.success(f"Successfully loaded and processed **{uploaded_file.name}**.")
+                    st.success(f"Successfully loaded **{uploaded_file.name}**.")
             except Exception as e:
                 st.error(f"An error occurred: {e}")
                 st.session_state.data = None
 
     with col2:
-        st.markdown("Option 2: Load the local project file")
+        st.markdown("Option 2: Reload the local project file")
         local_file_name = "College Case study Survey.xlsx"
         
-        if st.button(f"Load Local File: `{local_file_name}`"):
-            # If user clicks button, process and save local file to session state
+        # We disable the button if the file doesn't exist, for clarity
+        file_exists = os.path.exists(local_file_name)
+        if st.button(f"Reload Local File: `{local_file_name}`", disabled=not file_exists):
             try:
                 st.session_state.data = load_and_clean_data(local_file_name)
                 if st.session_state.data is not None:
-                    st.success(f"Successfully loaded and processed **{local_file_name}**.")
+                    st.success(f"Successfully loaded **{local_file_name}**.")
             except Exception as e:
-                # Error is handled in load_and_clean_data, but clear state just in case
                 st.session_state.data = None
     
     st.divider()
-    # --- END NEW LAYOUT ---
 
-    # --- MODIFIED: Main app logic ---
-    # Run the dashboard if data exists in the session state
+    # --- Run the dashboard ---
     if st.session_state.data is not None:
         build_dashboard(st.session_state.data)
     else:
-        st.info("Awaiting your survey file... (Use either the uploader or the local file button)")
-    # --- END MODIFIED ---
+        st.info("Awaiting your survey file... (Upload a file or ensure 'College Case study Survey.xlsx' is in the folder)")
 
 if __name__ == "__main__":
     main()
