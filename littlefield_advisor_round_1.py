@@ -1,5 +1,6 @@
 import io
 import math
+import os  # Added for local file handling
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -205,6 +206,7 @@ def read_df(file, kind: str):
     if file is None:
         return None
     try:
+        # file.name works for both UploadedFile objects and standard Python file objects
         if file.name.lower().endswith(".csv"):
             df = pd.read_csv(file)
         else:
@@ -274,12 +276,53 @@ have_S3 = st.sidebar.number_input("Tuners (S3) you currently own", min_value=1, 
 st.markdown("### 1. Upload Littlefield Exports")
 st.caption("Drag and drop all your exported CSV or XLSX files here at once.")
 
-uploaded_files = st.file_uploader(
-    "Upload ALL Littlefield exports (CSV or XLSX).",
-    type=["csv", "xlsx"],
-    accept_multiple_files=True,
-    label_visibility="collapsed"
-)
+# --- Session State for Local Loading ---
+if "use_local_files" not in st.session_state:
+    st.session_state.use_local_files = False
+
+# Layout: Uploader on Left, Local Load Button on Right
+col_upload, col_local = st.columns([0.7, 0.3])
+
+with col_upload:
+    uploaded_files = st.file_uploader(
+        "Upload ALL Littlefield exports (CSV or XLSX).",
+        type=["csv", "xlsx"],
+        accept_multiple_files=True,
+        label_visibility="collapsed"
+    )
+
+with col_local:
+    st.write("") # Spacer
+    st.write("") # Spacer
+    if st.button("📂 Load Local Files"):
+        st.session_state.use_local_files = True
+        # We don't rerun immediately, we just let the logic below handle it
+
+# Logic to determine which files to use
+files_to_process = []
+
+if uploaded_files:
+    # If user uploads files, prioritize those and reset local flag
+    files_to_process = uploaded_files
+    st.session_state.use_local_files = False
+elif st.session_state.use_local_files:
+    # If flag is set, try to load from local directory
+    local_files_found = 0
+    for key, filename in FILE_CUE_MAP.items():
+        if os.path.exists(filename):
+            try:
+                # Open in binary mode to match Streamlit uploader behavior
+                f = open(filename, "rb")
+                files_to_process.append(f)
+                local_files_found += 1
+            except Exception as e:
+                st.error(f"Error loading local file {filename}: {e}")
+    
+    if local_files_found > 0:
+        st.info(f"Loaded {local_files_found} local files from server folder.")
+    else:
+        st.warning("No matching local files found in the current folder.")
+        st.session_state.use_local_files = False
 
 st.markdown("**Expected files (7 total):**")
 st.markdown(f"""
@@ -292,16 +335,17 @@ st.markdown(f"""
 * `{FILE_CUE_MAP['util3']}` (Optional)
 """)
 
-if not uploaded_files:
-    st.info("➡️ Upload your exported files to begin. The 'jobs accepted' file is required.")
+if not files_to_process:
+    st.info("➡️ Upload your exported files or click 'Load Local Files' to begin.")
     st.stop()
 
 # --- File Mapping/Dispatcher Logic ---
 data_files = {key: None for key in FILE_LOGIC_MAP}
 unmapped_files = []
 
-for file in uploaded_files:
+for file in files_to_process:
     found = False
+    # file.name works for both Streamlit UploadedFile and Python file objects
     file_name_lower = file.name.lower()
     for key, pattern in FILE_LOGIC_MAP.items():
         if pattern in file_name_lower:
